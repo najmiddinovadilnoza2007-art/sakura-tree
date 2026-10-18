@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sakura</title>
+  <style>
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+#scene {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  cursor: pointer;
+}
+
+#caption {
+  position: fixed;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #333333;
+  font-family: Arial, sans-serif;
+  font-size: 18px;
+  text-align: center;
+  pointer-events: none;
+}
+  </style>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+  <div id="caption">Tap to grow again</div>
+  <script>
+const canvas = document.getElementById("scene");
+const ctx = canvas.getContext("2d");
+
+const GROW_FRAMES = 50;   // frames each branch takes to grow
+const MAX_DEPTH = 9;      // how many times the tree branches
+const COLORS = ["#f7b6cf", "#f29bbd", "#e97fae", "#d86a9b", "#f9c9da", "#c85b8c"];
+
+let W, H, L0, active, blossoms, phase, raf;
+
+const rand = (a, b) => a + Math.random() * (b - a);
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function makeBranch(x, y, angle, len, width, depth) {
+  return { x, y, angle, len, width, depth, grown: 0 };
+}
+
+function start() {
+  cancelAnimationFrame(raf);
+  resize();
+  ctx.clearRect(0, 0, W, H);
+  ctx.lineCap = "round";
+  ctx.strokeStyle = "#2a1713";
+
+  L0 = Math.min(H * 0.2, W * 0.3);
+  active = [makeBranch(W / 2, H + 6, -Math.PI / 2, L0, L0 * 0.17, 0)];
+  blossoms = [];
+  phase = "grow";
+  raf = requestAnimationFrame(loop);
+}
+
+function addBlossoms(x, y, count) {
+  for (let i = 0; i < count; i++) {
+    blossoms.push({
+      x: x + rand(-L0 * 0.06, L0 * 0.06),
+      y: y + rand(-L0 * 0.06, L0 * 0.06),
+      r: L0 * rand(0.03, 0.055),
+      rot: rand(0, Math.PI * 2),
+      color: COLORS[(Math.random() * COLORS.length) | 0],
+      delay: (Math.random() * 180) | 0,
+      t: 0,
+      glow: false,
+    });
+  }
+}
+
+function spawnChildren(b) {
+  if (b.depth >= MAX_DEPTH) {
+    addBlossoms(b.x, b.y, 4);
+    return [];
+  }
+  if (b.depth >= 3) addBlossoms(b.x, b.y, 1);
+
+  const kids = [];
+  const n = b.depth < 3 && Math.random() < 0.25 ? 3 : 2;
+  for (let i = 0; i < n; i++) {
+    if (b.depth > 3 && Math.random() < 0.12) continue; // skip some branches for a natural look
+    const side = n === 2 ? (i === 0 ? -1 : 1) : i - 1;
+    let a = b.angle + side * rand(0.25, 0.6) + rand(-0.1, 0.1);
+    a += (-Math.PI / 2 - a) * 0.12; // bend slightly upward
+    kids.push(
+      makeBranch(
+        b.x, b.y, a,
+        b.len * rand(0.74, 0.88),
+        Math.max(b.width * 0.7, 0.7),
+        b.depth + 1
+      )
+    );
+  }
+  return kids;
+}
+
+function growBranches() {
+  const next = [];
+  for (const b of active) {
+    const step = b.len / GROW_FRAMES;
+    b.grown += step;
+    b.angle += rand(-0.04, 0.04);
+
+    const nx = b.x + Math.cos(b.angle) * step;
+    const ny = b.y + Math.sin(b.angle) * step;
+
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(nx, ny);
+    ctx.lineWidth = b.width * (1 - 0.3 * (b.grown / b.len));
+    ctx.stroke();
+
+    b.x = nx;
+    b.y = ny;
+
+    if (b.grown < b.len) next.push(b);
+    else next.push(...spawnChildren(b));
+  }
+  active = next;
+}
+
+function drawBlossom(p, s) {
+  const r = p.r * s;
+
+  if (!p.glow) {
+    p.glow = true;
+    const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 4);
+    g.addColorStop(0, "rgba(255,182,206,0.10)");
+    g.addColorStop(1, "rgba(255,182,206,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * 4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = p.color;
+  for (let i = 0; i < 5; i++) {
+    const a = p.rot + (i * Math.PI * 2) / 5;
+    ctx.beginPath();
+    ctx.arc(p.x + Math.cos(a) * r * 0.45, p.y + Math.sin(a) * r * 0.45, r * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = "rgba(160,50,100,0.55)";
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r * 0.15, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function bloom() {
+  let allDone = true;
+  for (const p of blossoms) {
+    if (p.delay > 0) { p.delay--; allDone = false; continue; }
+    if (p.t < 1) {
+      p.t = Math.min(p.t + 0.025, 1);
+      const ease = 1 - Math.pow(1 - p.t, 3);
+      drawBlossom(p, ease);
+      allDone = false;
+    }
+  }
+  return allDone;
+}
+
+function loop() {
+  if (phase === "grow") {
+    growBranches();
+    if (active.length === 0) phase = "bloom";
+  } else {
+    if (bloom()) return; // done, animation stops
+  }
+  raf = requestAnimationFrame(loop);
+}
+
+canvas.addEventListener("click", start);
+window.addEventListener("resize", start);
+start();
+  </script>
+</body>
+</html>
